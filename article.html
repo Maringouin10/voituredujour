@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voiture du Jour - Articles</title>
+
+<style>
+/* … CSS inchangé … */
+body {
+    font-family: Helvetica, Arial, sans-serif;
+    background:#f3f5f7;
+    color:#0f1724;
+    margin:0;
+    padding:0;
+}
+header {
+    background: linear-gradient(90deg,#0f1724,#1f2937);
+    color:#fff;
+    text-align:center;
+    padding:40px 20px;
+}
+header h1 { margin:0; font-size:2.4em; }
+main { max-width:1100px; margin:30px auto; padding:0 20px; }
+/* search/filter */
+.top-controls { display:flex; justify-content:space-between; align-items:center; margin-bottom:25px; gap:20px; }
+.search-container { flex-grow:2; }
+.search-container input { width:100%; padding:12px; border-radius:8px; border:1px solid #ccc; font-size:16px; }
+.filter-container { flex-grow:1; min-width:180px; }
+.filter-container select { width:100%; padding:12px; border-radius:8px; border:1px solid #ccc; font-size:16px; background-color:white; }
+/* grid */
+#articles-container { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:25px; }
+/* card */
+.article-card {
+    background:#fff; border-radius:14px; box-shadow:0 3px 10px rgba(0,0,0,0.07);
+    overflow:hidden; transition:0.25s; position:relative;
+}
+.article-card:hover { transform:scale(1.01); cursor:pointer; }
+/* featured */
+.article-card.featured {
+    border:3px solid #ff7f50; box-shadow:0 6px 15px rgba(255,127,80,0.5);
+    order:-1; grid-column:1/-1; display:flex; flex-direction:row;
+}
+.article-card.featured .featured-tag {
+    position:absolute; top:10px; right:10px; background:#ff7f50; color:white;
+    padding:5px 10px; border-radius:8px; font-weight:bold; z-index:10;
+}
+.article-card.featured .article-images { width:50%; padding:10px; }
+.article-card.featured .article-content { width:50%; padding:30px; }
+@media(max-width:768px){
+    .article-card.featured{ flex-direction:column; }
+    .article-card.featured .article-images,.article-card.featured .article-content{ width:100%; }
+}
+/* badges */
+.badges-container { display:flex; gap:8px; margin-bottom:5px; }
+.subject-badge { padding:6px 10px; border-radius:50px; font-size:.85em; font-weight:700; background:#e5e7eb; color:#1f2937; }
+/* date */
+.publish-date { font-size:.8em; color:#6b7280; margin-bottom:12px; display:block; }
+/* images */
+.article-images { display:flex; gap:6px; background:#f9fafb; padding:6px; }
+.article-images img { width:50%; height:150px; border-radius:8px; object-fit:cover; }
+/* content */
+.article-content { padding:18px; }
+.article-content h2 { font-size:20px; margin:0 0 5px 0; }
+.article-content button { margin-top:12px; padding:12px; border:none; border-radius:6px; background:#111827; color:white; font-weight:700; width:100%; }
+/* pagination */
+.pagination { text-align:center; margin:30px 0; }
+.pagination button { padding:10px 18px; margin:0 5px; background:#1f2937; color:white; border:none; border-radius:6px; font-weight:600; }
+.pagination button:disabled { background:#9ca3af; cursor:not-allowed; }
+/* footer */
+footer { text-align:center; font-size:13px; color:#9aa3b2; padding:30px; }
+</style>
+</head>
+<body>
+
+<header>
+<h1>Voiture du Jour - Articles</h1>
+<p>Sélection quotidienne des nouveautés automobiles</p>
+</header>
+
+<main>
+
+<div class="top-controls">
+    <div class="search-container">
+        <input type="text" id="search" placeholder="Recherche par titre...">
+    </div>
+
+    <div class="filter-container">
+        <select id="categoryFilter">
+            <option value="">Toutes les catégories</option>
+        </select>
+    </div>
+</div>
+
+<div id="articles-container"><p style="text-align:center;">Chargement...</p></div>
+
+<div class="pagination">
+    <button id="prevPage">Précédent</button>
+    <span id="pageInfo">Page 1</span>
+    <button id="nextPage">Suivant</button>
+</div>
+
+</main>
+
+<footer>
+<p>&copy; 2025 Voiture du Jour</p>
+</footer>
+
+<script>
+const ARTICLE_WEBHOOK="https://n8n1.voituredujour.duckdns.org/webhook/article";
+
+let articlesData=null;
+let articleOrder=[];
+let filteredOrder=null;   // ← NOUVEAU : ordre spécifique au filtre
+let currentPage=1;
+const perPage=15;
+
+/* utils markdown + dates + loader … inchangé */
+function parseMarkdownToHTML(t){if(!t)return"";let h=t.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>");const l=t.split("\n");let s=false;const c=l.map(e=>{const r=e.trim();if(r.startsWith("* ")){const i=r.substring(2);if(!s){s=true;return"<ul><li>"+i+"</li>"}return"<li>"+i+"</li>"}else{if(s){s=false;return"</ul>"+e}return e}}).join("\n");h=c.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>");h=h.replace(/##\s*(.*)/g,"<h3>$1</h3>");if(s)h+="</ul>";return h;}
+function formatDate(d){if(!d)return"";try{const f=new Date(d);return f.toLocaleDateString("fr-FR",{year:"numeric",month:"2-digit",day:"2-digit"})}catch{return"Date inconnue"}}
+function readArticle(i){const a={};for(const k in articlesData){if(Array.isArray(articlesData[k]))a[k]=articlesData[k][i];}
+localStorage.setItem("selectedArticle",JSON.stringify(a));
+localStorage.setItem("allArticlesData",JSON.stringify(articlesData));
+window.location.href="article_full.html";}
+
+async function fetchArticles(){
+    try{
+        const r=await fetch(ARTICLE_WEBHOOK);
+        return await r.json();
+    }catch(e){
+        document.getElementById("articles-container").innerHTML="<p style='text-align:center;color:red;'>Erreur chargement.</p>";
+        return null;
+    }
+}
+
+function populateCategoryFilter(list){
+    const s=document.getElementById("categoryFilter");
+    s.innerHTML='<option value="">Toutes les catégories</option>';
+    [...new Set(list.filter(x=>x&&x.trim()!=="").sort())].forEach(cat=>{
+        const o=document.createElement("option");
+        o.value=cat;o.textContent=cat;s.appendChild(o);
+    });
+}
+
+function createArticleCard(article,index){
+    let resumeArr=[];
+    try{ resumeArr=JSON.parse(article.resume[index]); }catch{}
+    const featured=article.betterart[index];
+    const sub=article.subject[index]||"Général";
+    const date=formatDate(article.createdAt[index]);
+    const resume = Array.isArray(resumeArr)
+      ? resumeArr.slice(0,1).map(p=>`<p>${parseMarkdownToHTML(p)}</p>`).join("")
+      : `<p>${parseMarkdownToHTML(article.resume[index])}</p>`;
+
+    let imgs = featured
+      ? `<div class="article-images"><img src="${article.img1[index]}"></div>`
+      : `<div class="article-images"><img src="${article.img1[index]}"><img src="${article.img2[index]}"></div>`;
+
+    return `
+    <div class="article-card ${featured?"featured":""}"
+         data-title="${article.titre[index].toLowerCase()}"
+         data-subject="${sub.toLowerCase()}"
+         onclick="readArticle(${index})">
+        ${featured?'<div class="featured-tag">Article Vedette</div>':""}
+        ${imgs}
+        <div class="article-content">
+            <div class="badges-container"><span class="subject-badge">${sub}</span></div>
+            <h2>${article.titre[index]}</h2>
+            <span class="publish-date">Publié le ${date}</span>
+            ${resume}
+            <button>Lire l'article</button>
+        </div>
+    </div>`;
+}
+
+/* --- NOUVELLE LOGIQUE PAGINATION + FILTRES --- */
+
+function computeBaseOrder(){
+    let featured=-1;
+    let list=[];
+    for(let i=articlesData.titre.length-1;i>=0;i--){
+        if(articlesData.betterart[i]) featured=i;
+        else list.push(i);
+    }
+    if(featured!==-1) list.unshift(featured);
+    return list;
+}
+
+function computeFilteredOrder(){
+    const query=document.getElementById("search").value.toLowerCase();
+    const cat=document.getElementById("categoryFilter").value.toLowerCase();
+
+    let base=[...computeBaseOrder()];
+    let featuredId = base[0];
+    let normal = base.slice(1).filter(idx=>{
+        const t=articlesData.titre[idx].toLowerCase();
+        const s=(articlesData.subject[idx]||"").toLowerCase();
+        const okTitle=t.includes(query);
+        const okCat=cat==="" || s===cat;
+        return okTitle && okCat;
+    });
+
+    return [featuredId, ...normal];
+}
+
+function renderArticles(){
+    const container=document.getElementById("articles-container");
+    container.innerHTML="";
+
+    // si aucun filtre → ordre normal
+    const isFiltered =
+        document.getElementById("search").value.trim() !== "" ||
+        document.getElementById("categoryFilter").value.trim() !== "";
+
+    articleOrder = isFiltered ? computeFilteredOrder() : computeBaseOrder();
+
+    // featured ne doit PAS compter dans pagination
+    const featuredIndex = articleOrder[0];
+    const normalArticles = articleOrder.slice(1);
+
+    const totalPages = Math.ceil(normalArticles.length / perPage);
+    if(currentPage > totalPages) currentPage = 1;
+
+    const start = (currentPage - 1) * perPage;
+    const end = start + perPage;
+
+    const pageItems = [featuredIndex, ...normalArticles.slice(start,end)];
+
+    let html="";
+    pageItems.forEach(i => html+=createArticleCard(articlesData,i));
+    container.innerHTML=html;
+
+    document.getElementById("pageInfo").textContent=`Page ${currentPage} / ${totalPages || 1}`;
+    document.getElementById("prevPage").disabled=currentPage<=1;
+    document.getElementById("nextPage").disabled=currentPage>=totalPages;
+}
+
+document.getElementById("prevPage").addEventListener("click",()=>{ currentPage--; renderArticles(); });
+document.getElementById("nextPage").addEventListener("click",()=>{ currentPage++; renderArticles(); });
+
+document.addEventListener("DOMContentLoaded",async()=>{
+    articlesData = await fetchArticles();
+    if(!articlesData) return;
+
+    populateCategoryFilter(articlesData.subject);
+    renderArticles();
+
+    document.getElementById("search").addEventListener("input",()=>{ currentPage=1; renderArticles(); });
+    document.getElementById("categoryFilter").addEventListener("change",()=>{ currentPage=1; renderArticles(); });
+});
+</script>
+</body>
+</html>
